@@ -6,13 +6,12 @@ from openai import OpenAI  # from new OpenAI SDK
 import streamlit as st
 
 # Replace all credentials from environment with secrets
-DATABRICKS_TOKEN = st.secrets["DATABRICKS_TOKEN"]
+DATABRICKS_TOKEN = st.secrets["DATABRICKS_ACCESS_TOKEN"]
 access_token = st.secrets["DATABRICKS_ACCESS_TOKEN"]
 workspace_url = st.secrets["DATABRICKS_HOST"]
 http_path = st.secrets["DATABRICKS_HTTP_PATH"]
 space_id = st.secrets["GENIE_SPACE_ID"]
 headers = {"Authorization": f"Bearer {access_token}"}
-st.write("✅ DATABRICKS_TOKEN:", st.secrets.get("DATABRICKS_TOKEN"))
 # --- INIT LLM ---
 llm = OpenAI(
     api_key=DATABRICKS_TOKEN,
