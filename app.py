@@ -1,7 +1,6 @@
 import os, time, requests
 import pandas as pd
 import streamlit as st
-from dotenv import load_dotenv
 from databricks import sql
 from openai import OpenAI  # from new OpenAI SDK
 import streamlit as st
