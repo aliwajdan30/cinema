@@ -1,0 +1,6 @@
+streamlit
+pandas
+requests
+python-dotenv
+openai>=1.0.0
+databricks-sql-connector
