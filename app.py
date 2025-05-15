@@ -4,14 +4,14 @@ import streamlit as st
 from dotenv import load_dotenv
 from databricks import sql
 from openai import OpenAI  # from new OpenAI SDK
+import streamlit as st
 
-# --- ENVIRONMENT ---
-load_dotenv()
-DATABRICKS_TOKEN = os.getenv("DATABRICKS_ACCESS_TOKEN")
-access_token = os.getenv("DATABRICKS_ACCESS_TOKEN")
-workspace_url = os.getenv("DATABRICKS_HOST")
-http_path = os.getenv("DATABRICKS_HTTP_PATH")
-space_id = os.getenv("GENIE_SPACE_ID")
+# Replace all credentials from environment with secrets
+DATABRICKS_TOKEN = st.secrets["DATABRICKS_TOKEN"]
+access_token = st.secrets["DATABRICKS_ACCESS_TOKEN"]
+workspace_url = st.secrets["DATABRICKS_HOST"]
+http_path = st.secrets["DATABRICKS_HTTP_PATH"]
+space_id = st.secrets["GENIE_SPACE_ID"]
 headers = {"Authorization": f"Bearer {access_token}"}
 
 # --- INIT LLM ---
