@@ -164,18 +164,20 @@ if q:
     with st.spinner("Processing..."):
         try:
             if is_mixed_question(q):
+                logger.info("Question classified as: mixed")
+
                 # Split the mixed question using LLM
                 classify_prompt = f"""
 Split the following user question into two separate sub-questions:
 (1) A cinema-related sub-question
 (2) A related lifestyle/survey sub-question based on target group
 
-User question: "{q}"
+User question: \"{q}\"
 
 Return as JSON:
 {{
-  "cinema_question": "...",
-  "survey_question": "..."
+  \"cinema_question\": \"...\",
+  \"survey_question\": \"...\"
 }}
 """
                 classify_response = llm.chat.completions.create(
@@ -196,12 +198,15 @@ Return as JSON:
                 logger.info(f"Original mixed question: {q}")
                 logger.info(f"Cinema sub-question: {cinema_q}")
                 logger.info(f"Survey sub-question: {survey_q}")
-                simplified = simplify_question(cinema_q)
-                colnames, rows = ask_genie(simplified)
-                df_genie = pd.DataFrame(rows, columns=colnames)
 
-                # Use LLM to infer next step using Genie results
+                simplified = simplify_question(cinema_q)
+                logger.info(f"Simplified question (cinema): {simplified}")
+                colnames, rows = ask_genie(simplified)
+                logger.info(f"Genie returned columns: {colnames}")
+
+                df_genie = pd.DataFrame(rows, columns=colnames)
                 preview = df_genie.head().to_dict(orient="records")
+
                 prompt = f"""This is the result of querying cinema data for the question: '{q}'.
 {preview}
 Now use this to find relevant information from the 'survey' table based on target_group.
@@ -212,14 +217,20 @@ Write a brief answer combining both parts."""
                     temperature=0.5,
                     max_tokens=300,
                 )
+
                 st.subheader("💬 Combined Insight")
                 st.write(response.choices[0].message.content.strip())
 
                 st.subheader("📊 Genie Output")
                 st.dataframe(df_genie, use_container_width=True)
+
             else:
+                logger.info("Question classified as: cinema")
                 simplified = simplify_question(q)
+                logger.info(f"Simplified question: {simplified}")
                 colnames, rows = ask_genie(simplified)
+                logger.info(f"Genie returned columns: {colnames}")
+
                 explanation = explain_answer(q, colnames, rows)
 
                 st.subheader("📊 Raw Table")
