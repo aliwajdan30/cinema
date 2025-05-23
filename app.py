@@ -1,9 +1,14 @@
-import time
-import requests
+import os, time, requests
 import pandas as pd
 import streamlit as st
 from databricks import sql
 from openai import OpenAI  # from new OpenAI SDK
+import json
+import logging
+
+# --- LOGGER SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- SECRETS ---
 DATABRICKS_TOKEN = st.secrets["DATABRICKS_ACCESS_TOKEN"]
@@ -46,19 +51,18 @@ def fetch_table_schemas():
 
 TABLE_SCHEMAS = fetch_table_schemas()
 
-# --- CINEMA vs MIXED CLASSIFIER ---
+# --- QUESTION CLASSIFIER ---
 def is_mixed_question(question):
     prompt = f"""
 You are a classifier. Decide whether the following question is:
 
-(a) only about cinema-related data (e.g. movies, showings, visits, locations, demographics, distributors), or  
+(a) only about cinema-related data (e.g. movies, showings, visits, locations, demographics, distributors), or
 (b) a combination of cinema data and lifestyle/survey information (e.g. banking, shopping, food, housing, preferences, income, etc.).
 
 Only return: 'cinema' or 'mixed'
 
-Question: \"{question}\"
+Question: "{question}"
 """
-
     response = llm.chat.completions.create(
         model="databricks-llama-4-maverick",
         messages=[{"role": "user", "content": prompt}],
@@ -72,15 +76,15 @@ def simplify_question(user_question):
     schema_text = ""
     for table, cols in TABLE_SCHEMAS.items():
         if table != "error":
-            schema_text += f"\n\U0001F4C2 {table}:\n" + "\n".join([f"  - {c}" for c in cols])
+            schema_text += f"\n📂 {table}:\n" + "\n".join([f"  - {c}" for c in cols])
 
     prompt = f"""
 Below is the schema of available tables in the database. Rewrite the following user question into a form that a SQL generator (Databricks Genie) can understand.
 
-\U0001F4D8 Schema:
+📘 Schema:
 {schema_text}
 
-User question: \"{user_question}\"
+User question: "{user_question}"
 
 Rewrite clearly describing the analytical intent (but do not write SQL):
 """
@@ -98,11 +102,17 @@ def ask_genie(simplified_question):
     if st.session_state.genie_conversation_id:
         conv_id = st.session_state.genie_conversation_id
         msg_url = f"https://{workspace_url}/api/2.0/genie/spaces/{space_id}/conversations/{conv_id}/messages"
-        post = requests.post(msg_url, headers=headers, json={"content": simplified_question}).json()
+        logger.info(f"Sending follow-up to Genie: {simplified_question}")
+        post_resp = requests.post(msg_url, headers=headers, json={"content": simplified_question})
+        logger.info(f"Genie follow-up response: {post_resp.status_code} | {post_resp.text}")
+        post = post_resp.json()
         msg_id = post["id"]
     else:
         start_url = f"https://{workspace_url}/api/2.0/genie/spaces/{space_id}/start-conversation"
-        start = requests.post(start_url, headers=headers, json={"content": simplified_question}).json()
+        logger.info(f"Sending to Genie: {simplified_question}")
+        start_resp = requests.post(start_url, headers=headers, json={"content": simplified_question})
+        logger.info(f"Genie response: {start_resp.status_code} | {start_resp.text}")
+        start = start_resp.json()
         conv_id, msg_id = start["conversation"]["id"], start["message"]["id"]
         st.session_state.genie_conversation_id = conv_id
 
@@ -117,7 +127,10 @@ def ask_genie(simplified_question):
         raise TimeoutError("❌ Genie timed out")
 
     result_url = f"https://{workspace_url}/api/2.0/genie/spaces/{space_id}/conversations/{conv_id}/messages/{msg_id}/attachments/{attachment_id}/query-result"
-    result = requests.get(result_url, headers=headers).json()
+    logger.info(f"Fetching Genie result from: {result_url}")
+    result_resp = requests.get(result_url, headers=headers)
+    logger.info(f"Genie result status: {result_resp.status_code} | {result_resp.text}")
+    result = result_resp.json()
     rows = result["statement_response"]["result"]["data_array"]
     cols = [col["name"] for col in result["statement_response"]["manifest"]["schema"]["columns"]]
     return cols, rows
@@ -146,6 +159,7 @@ else:
     st.success("✅ Schema loaded. Databricks-hosted LLM is ready!")
 
 q = st.text_input("Ask a question:")
+
 if q:
     with st.spinner("Processing..."):
         try:
@@ -156,7 +170,7 @@ Split the following user question into two separate sub-questions:
 (1) A cinema-related sub-question
 (2) A related lifestyle/survey sub-question based on target group
 
-User question: \"{q}\"
+User question: "{q}"
 
 Return as JSON:
 {{
@@ -171,13 +185,17 @@ Return as JSON:
                     max_tokens=200,
                 )
                 try:
-                    parts = eval(classify_response.choices[0].message.content.strip())
+                    content = classify_response.choices[0].message.content.strip()
+                    logger.info(f"LLM classify response: {content}")
+                    parts = json.loads(content)
                     cinema_q = parts["cinema_question"]
                     survey_q = parts["survey_question"]
-                except Exception:
-                    raise ValueError("Failed to split the question properly.")
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Failed to split the question properly: {e}")
 
-                # Ask Genie for cinema-related part
+                logger.info(f"Original mixed question: {q}")
+                logger.info(f"Cinema sub-question: {cinema_q}")
+                logger.info(f"Survey sub-question: {survey_q}")
                 simplified = simplify_question(cinema_q)
                 colnames, rows = ask_genie(simplified)
                 df_genie = pd.DataFrame(rows, columns=colnames)
@@ -211,5 +229,5 @@ Write a brief answer combining both parts."""
                 st.write(explanation)
 
         except Exception as e:
+            logger.exception("Unhandled error during processing.")
             st.error(f"❌ {str(e)}")
-        st.error(f"❌ {str(e)}")
