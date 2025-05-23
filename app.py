@@ -161,11 +161,15 @@ else:
 q = st.text_input("Ask a question:")
 
 if q:
+    st.write("📋 **Question:**", q)
+
     with st.spinner("Processing..."):
         try:
-            if is_mixed_question(q):
-                logger.info("Question classified as: mixed")
+            is_mixed = is_mixed_question(q)
+            st.write("🔍 **Classified as:**", "Mixed" if is_mixed else "Cinema")
+            logger.info(f"Question classified as: {'mixed' if is_mixed else 'cinema'}")
 
+            if is_mixed:
                 # Split the mixed question using LLM
                 classify_prompt = f"""
 Split the following user question into two separate sub-questions:
@@ -200,7 +204,9 @@ Return as JSON:
                 logger.info(f"Survey sub-question: {survey_q}")
 
                 simplified = simplify_question(cinema_q)
+                st.code(f"Simplified Question (cinema): {simplified}", language="markdown")
                 logger.info(f"Simplified question (cinema): {simplified}")
+
                 colnames, rows = ask_genie(simplified)
                 logger.info(f"Genie returned columns: {colnames}")
 
@@ -225,9 +231,10 @@ Write a brief answer combining both parts."""
                 st.dataframe(df_genie, use_container_width=True)
 
             else:
-                logger.info("Question classified as: cinema")
                 simplified = simplify_question(q)
+                st.code(f"Simplified Question: {simplified}", language="markdown")
                 logger.info(f"Simplified question: {simplified}")
+
                 colnames, rows = ask_genie(simplified)
                 logger.info(f"Genie returned columns: {colnames}")
 
