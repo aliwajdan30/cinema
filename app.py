@@ -3,15 +3,15 @@ import pandas as pd
 import streamlit as st
 from databricks import sql
 from openai import OpenAI  # from new OpenAI SDK
-import streamlit as st
 
-# Replace all credentials from environment with secrets
+# --- SECRETS ---
 DATABRICKS_TOKEN = st.secrets["DATABRICKS_ACCESS_TOKEN"]
-access_token = st.secrets["DATABRICKS_ACCESS_TOKEN"]
+access_token = DATABRICKS_TOKEN
 workspace_url = st.secrets["DATABRICKS_HOST"]
 http_path = st.secrets["DATABRICKS_HTTP_PATH"]
 space_id = st.secrets["GENIE_SPACE_ID"]
 headers = {"Authorization": f"Bearer {access_token}"}
+
 # --- INIT LLM ---
 llm = OpenAI(
     api_key=DATABRICKS_TOKEN,
@@ -33,8 +33,8 @@ def fetch_table_schemas():
             access_token=access_token
         )
         cursor = conn.cursor()
-        for table in ["cluster_results", "cinema_cluster_results", "survey_cluster_results"]:
-            cursor.execute(f"DESCRIBE TABLE dev.persona.{table}")
+        for table in ["survey"]:
+            cursor.execute(f"DESCRIBE TABLE dev.cinema.{table}")
             rows = cursor.fetchall()
             schema_info[table] = [f"{r[0]} ({r[1]})" for r in rows if r[0] and not r[0].startswith("#")]
         cursor.close()
@@ -45,20 +45,41 @@ def fetch_table_schemas():
 
 TABLE_SCHEMAS = fetch_table_schemas()
 
+# --- CINEMA vs MIXED CLASSIFIER ---
+def is_mixed_question(question):
+    prompt = f"""
+You are a classifier. Decide whether the following question is:
+
+(a) only about cinema-related data (e.g. movies, showings, visits, locations, demographics, distributors), or  
+(b) a combination of cinema data and lifestyle/survey information (e.g. banking, shopping, food, housing, preferences, income, etc.).
+
+Only return: 'cinema' or 'mixed'
+
+Question: \"{question}\"
+"""
+
+    response = llm.chat.completions.create(
+        model="databricks-llama-4-maverick",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,
+        max_tokens=10,
+    )
+    return response.choices[0].message.content.strip().lower() == "mixed"
+
 # --- LLM QUESTION SIMPLIFIER ---
 def simplify_question(user_question):
     schema_text = ""
     for table, cols in TABLE_SCHEMAS.items():
         if table != "error":
-            schema_text += f"\n📂 {table}:\n" + "\n".join([f"  - {c}" for c in cols])
+            schema_text += f"\n\U0001F4C2 {table}:\n" + "\n".join([f"  - {c}" for c in cols])
 
     prompt = f"""
 Below is the schema of available tables in the database. Rewrite the following user question into a form that a SQL generator (Databricks Genie) can understand.
 
-📘 Schema:
+\U0001F4D8 Schema:
 {schema_text}
 
-User question: "{user_question}"
+User question: \"{user_question}\"
 
 Rewrite clearly describing the analytical intent (but do not write SQL):
 """
@@ -114,7 +135,7 @@ def explain_answer(question, cols, rows):
     )
     return response.choices[0].message.content.strip()
 
-# --- UI ---
+# --- STREAMLIT UI ---
 st.set_page_config(page_title="Cinema/Norstat Assistant", layout="wide")
 st.title("🎯 Cinema/Norstat Assistant")
 
@@ -128,14 +149,67 @@ q = st.text_input("Ask a question:")
 if q:
     with st.spinner("Processing..."):
         try:
-            simplified = simplify_question(q)
-            colnames, rows = ask_genie(simplified)
-            explanation = explain_answer(q, colnames, rows)
+            if is_mixed_question(q):
+                # Split the mixed question using LLM
+                classify_prompt = f"""
+                Split the following user question into two separate sub-questions:
+                (1) A cinema-related sub-question
+                (2) A related lifestyle/survey sub-question based on target group
+                
+                User question: \"{q}\"
+                
+                Return as JSON:
+                {
+                  \"cinema_question\": "...",
+                  \"survey_question\": "..."
+                }
+                """
+                classify_response = llm.chat.completions.create(
+                    model="databricks-llama-4-maverick",
+                    messages=[{"role": "user", "content": classify_prompt}],
+                    temperature=0.0,
+                    max_tokens=200,
+                )
+                try:
+                    parts = eval(classify_response.choices[0].message.content.strip())
+                    cinema_q = parts["cinema_question"]
+                    survey_q = parts["survey_question"]
+                except:
+                    raise ValueError("Failed to split the question properly.")
+                
+                # Ask Genie for cinema-related part
+                simplified = simplify_question(cinema_q)
+                simplified = simplify_question(q)
+                colnames, rows = ask_genie(simplified)
+                df_genie = pd.DataFrame(rows, columns=colnames)
 
-            st.subheader("📊 Raw Table")
-            st.dataframe(pd.DataFrame(rows, columns=colnames), use_container_width=True)
+                # Use LLM to infer next step using Genie results
+                preview = df_genie.head().to_dict(orient="records")
+                prompt = f"""This is the result of querying cinema data for the question: '{q}'.
+{preview}
+Now use this to find relevant information from the 'survey' table based on target_group.
+Write a brief answer combining both parts."""
+                response = llm.chat.completions.create(
+                    model="databricks-llama-4-maverick",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                    max_tokens=300,
+                )
+                st.subheader("💬 Combined Insight")
+                st.write(response.choices[0].message.content.strip())
 
-            st.subheader("💬 Explanation")
-            st.write(explanation)
+                st.subheader("📊 Genie Output")
+                st.dataframe(df_genie, use_container_width=True)
+            else:
+                simplified = simplify_question(q)
+                colnames, rows = ask_genie(simplified)
+                explanation = explain_answer(q, colnames, rows)
+
+                st.subheader("📊 Raw Table")
+                st.dataframe(pd.DataFrame(rows, columns=colnames), use_container_width=True)
+
+                st.subheader("💬 Explanation")
+                st.write(explanation)
+
         except Exception as e:
             st.error(f"❌ {str(e)}")
