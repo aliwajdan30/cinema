@@ -203,7 +203,7 @@ Return as JSON:
                 logger.info(f"Cinema sub-question: {cinema_q}")
                 logger.info(f"Survey sub-question: {survey_q}")
 
-                simplified = simplify_question(cinema_q)
+                simplified = cinema_q #simplify_question(cinema_q)
                 st.code(f"Simplified Question (cinema): {simplified}", language="markdown")
                 logger.info(f"Simplified question (cinema): {simplified}")
 
