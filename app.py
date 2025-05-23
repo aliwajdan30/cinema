@@ -1,4 +1,5 @@
-import os, time, requests
+import time
+import requests
 import pandas as pd
 import streamlit as st
 from databricks import sql
@@ -145,25 +146,24 @@ else:
     st.success("✅ Schema loaded. Databricks-hosted LLM is ready!")
 
 q = st.text_input("Ask a question:")
-
 if q:
     with st.spinner("Processing..."):
         try:
             if is_mixed_question(q):
                 # Split the mixed question using LLM
                 classify_prompt = f"""
-                Split the following user question into two separate sub-questions:
-                (1) A cinema-related sub-question
-                (2) A related lifestyle/survey sub-question based on target group
-                
-                User question: \"{q}\"
-                
-                Return as JSON:
-                {
-                  \"cinema_question\": "...",
-                  \"survey_question\": "..."
-                }
-                """
+Split the following user question into two separate sub-questions:
+(1) A cinema-related sub-question
+(2) A related lifestyle/survey sub-question based on target group
+
+User question: \"{q}\"
+
+Return as JSON:
+{{
+  "cinema_question": "...",
+  "survey_question": "..."
+}}
+"""
                 classify_response = llm.chat.completions.create(
                     model="databricks-llama-4-maverick",
                     messages=[{"role": "user", "content": classify_prompt}],
@@ -174,12 +174,11 @@ if q:
                     parts = eval(classify_response.choices[0].message.content.strip())
                     cinema_q = parts["cinema_question"]
                     survey_q = parts["survey_question"]
-                except:
+                except Exception:
                     raise ValueError("Failed to split the question properly.")
-                
+
                 # Ask Genie for cinema-related part
                 simplified = simplify_question(cinema_q)
-                simplified = simplify_question(q)
                 colnames, rows = ask_genie(simplified)
                 df_genie = pd.DataFrame(rows, columns=colnames)
 
@@ -213,3 +212,4 @@ Write a brief answer combining both parts."""
 
         except Exception as e:
             st.error(f"❌ {str(e)}")
+        st.error(f"❌ {str(e)}")
