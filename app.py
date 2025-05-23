@@ -203,7 +203,7 @@ Return as JSON:
                 logger.info(f"Cinema sub-question: {cinema_q}")
                 logger.info(f"Survey sub-question: {survey_q}")
 
-                simplified = cinema_q #simplify_question(cinema_q)
+                simplified = simplify_question(cinema_q)
                 st.code(f"Simplified Question (cinema): {simplified}", language="markdown")
                 logger.info(f"Simplified question (cinema): {simplified}")
 
@@ -231,21 +231,23 @@ Write a brief answer combining both parts."""
                 st.dataframe(df_genie, use_container_width=True)
 
             else:
-                simplified = simplify_question(q)
-                st.code(f"Simplified Question: {simplified}", language="markdown")
-                logger.info(f"Simplified question: {simplified}")
+    logger.info("Question classified as: cinema")
+    simplified = q  # Forward question directly to Genie
+    st.code(f"Forwarded to Genie: {simplified}", language="markdown")
+    logger.info(f"Forwarded to Genie: {simplified}")
 
-                colnames, rows = ask_genie(simplified)
-                logger.info(f"Genie returned columns: {colnames}")
+    colnames, rows = ask_genie(simplified)
+    logger.info(f"Genie returned columns: {colnames}")
+    logger.info(f"Genie returned columns: {colnames}")
 
-                explanation = explain_answer(q, colnames, rows)
+    explanation = explain_answer(q, colnames, rows)
 
-                st.subheader("📊 Raw Table")
-                st.dataframe(pd.DataFrame(rows, columns=colnames), use_container_width=True)
+    st.subheader("📊 Raw Table")
+    st.dataframe(pd.DataFrame(rows, columns=colnames), use_container_width=True)
 
-                st.subheader("💬 Explanation")
-                st.write(explanation)
+    st.subheader("💬 Explanation")
+    st.write(explanation)
 
-        except Exception as e:
-            logger.exception("Unhandled error during processing.")
-            st.error(f"❌ {str(e)}")
+    except Exception as e:
+        logger.exception("Unhandled error during processing.")
+        st.error(f"❌ {str(e)}")
