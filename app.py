@@ -211,12 +211,39 @@ Return as JSON:
                 logger.info(f"Genie returned columns: {colnames}")
 
                 df_genie = pd.DataFrame(rows, columns=colnames)
-                preview = df_genie.head().to_dict(orient="records")
+                preview1 = df_genie.head().to_dict(orient="records")
 
-                prompt = f"""This is the result of querying cinema data for the question: '{q}'.
-{preview}
-Now use this to find relevant information from the 'survey' table based on target_group.
-Write a brief answer combining both parts."""
+                # Ask LLM to rewrite survey question based on target groups
+                survey_expand_prompt = f"""
+You are given this cinema query result:
+{preview1}
+
+The original survey question was: '{survey_q}'
+
+Rewrite a clear and complete natural language question to ask Genie about the 'survey' table, based on the same target groups shown above.
+"""
+                survey_rewrite = llm.chat.completions.create(
+                    model="databricks-llama-4-maverick",
+                    messages=[{"role": "user", "content": survey_expand_prompt}],
+                    temperature=0.2,
+                    max_tokens=150
+                )
+                survey_nl = survey_rewrite.choices[0].message.content.strip()
+                logger.info(f"Survey query for Genie: {survey_nl}")
+
+                # Ask Genie for survey part
+                survey_cols, survey_rows = ask_genie(survey_nl)
+                df_survey = pd.DataFrame(survey_rows, columns=survey_cols)
+                preview2 = df_survey.head().to_dict(orient="records")
+
+                # Final combined interpretation
+                prompt = f"""This is the result of querying cinema data:
+{preview1}
+
+And this is the result of querying survey data:
+{preview2}
+
+Please combine these and explain the overall insight in the context of the original question: '{q}'."""
                 response = llm.chat.completions.create(
                     model="databricks-llama-4-maverick",
                     messages=[{"role": "user", "content": prompt}],
