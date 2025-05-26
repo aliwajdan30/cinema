@@ -56,10 +56,18 @@ def is_mixed_question(question):
     prompt = f"""
 You are a classifier. Decide whether the following question is:
 
-(a) only about cinema-related data (e.g. movies, showings, visits, locations, demographics, distributors), or
-(b) a combination of cinema data and lifestyle/survey information (e.g. banking, shopping, food, housing, preferences, income, etc.).
+(a) only about cinema-related data (e.g. movies, showings, visits, locations, demographics, distributors), or  
+(b) a combination of cinema data and survey information (e.g. preferences, income, banking, shopping, food, housing, transportation, education, children, media, values, opinions).
 
-Only return: 'cinema' or 'mixed'
+Return only: 'cinema' or 'mixed'
+
+Examples:
+- "How many people watched Barbie?" → cinema
+- "Which types of people watched Top Gun?" → cinema
+- "What income group watches James Bond movies?" → mixed
+- "What kind of people watched Oppenheimer and where do they shop?" → mixed
+- "Which demographics watched Dune?" → cinema
+- "Which grocery stores do the viewers of Dune prefer?" → mixed
 
 Question: "{question}"
 """
