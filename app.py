@@ -54,28 +54,29 @@ TABLE_SCHEMAS = fetch_table_schemas()
 # --- QUESTION CLASSIFIER ---
 def is_mixed_question(question):
     prompt = f"""
-You are a classifier. Decide whether the following question is:
+You are a classifier. Classify the following question as:
 
-(a) only about cinema-related data (e.g. movies, showings, visits, locations, demographics, distributors), or  
-(b) a combination of cinema data and survey information (e.g. preferences, income, banking, shopping, food, housing, transportation, education, children, media, values, opinions).
+(a) 'cinema' – if it is only about movies, showings, visits, locations, distributors, or audience demographics.
 
-Return only: 'cinema' or 'mixed'
+(b) 'mixed' – if it includes *both* cinema-related topics AND survey/lifestyle information such as preferences, shopping, food, banking, cars, children, media, values, or income.
 
 Examples:
-- "How many people watched Barbie?" → cinema
-- "Which types of people watched Top Gun?" → cinema
-- "What income group watches James Bond movies?" → mixed
-- "What kind of people watched Oppenheimer and where do they shop?" → mixed
-- "Which demographics watched Dune?" → cinema
-- "Which grocery stores do the viewers of Dune prefer?" → mixed
+- "How many people watched Top Gun?" → cinema
+- "Which age group visited most cinemas in Oslo?" → cinema
+- "What kind of people watched Top Gun and where do they shop?" → mixed
+- "How do cinema viewers prefer to pay for groceries?" → mixed
+- "What do the target groups of Barbie eat for breakfast?" → mixed
+- "Which movies were watched by people who also drive electric cars?" → mixed
 
-Question: "{question}"
+Only reply with one word: 'cinema' or 'mixed'
+
+Question: \"{question}\"
 """
     response = llm.chat.completions.create(
         model="databricks-llama-4-maverick",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.0,
-        max_tokens=10,
+        max_tokens=10
     )
     return response.choices[0].message.content.strip().lower() == "mixed"
 
