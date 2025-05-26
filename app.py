@@ -54,29 +54,28 @@ TABLE_SCHEMAS = fetch_table_schemas()
 # --- QUESTION CLASSIFIER ---
 def is_mixed_question(question):
     prompt = f"""
-You are a classifier. Classify the following question as:
+    You are a classifier. Decide whether the following question is:
 
-(a) 'cinema' – if it is only about movies, showings, visits, locations, distributors, or audience demographics.
+    (a) only about cinema-related data (e.g. movies, showings, visits, locations, demographics, distributors), or  
+    (b) a combination of cinema data and survey information (e.g. preferences, income, banking, shopping, food, housing, transportation, education, children, media, values, opinions).
 
-(b) 'mixed' – if it includes *both* cinema-related topics AND survey/lifestyle information such as preferences, shopping, food, banking, cars, children, media, values, or income.
+    Return only: 'cinema' or 'mixed'
 
-Examples:
-- "How many people watched Top Gun?" → cinema
-- "Which age group visited most cinemas in Oslo?" → cinema
-- "What kind of people watched Top Gun and where do they shop?" → mixed
-- "How do cinema viewers prefer to pay for groceries?" → mixed
-- "What do the target groups of Barbie eat for breakfast?" → mixed
-- "Which movies were watched by people who also drive electric cars?" → mixed
+    Examples:
+    - "How many people watched Barbie?" → cinema
+    - "Which types of people watched Top Gun?" → cinema
+    - "What income group watches James Bond movies?" → mixed
+    - "What kind of people watched Oppenheimer and where do they shop?" → mixed
+    - "Which demographics watched Dune?" → cinema
+    - "Which grocery stores do the viewers of Dune prefer?" → mixed
 
-Only reply with one word: 'cinema' or 'mixed'
-
-Question: \"{question}\"
-"""
+    Question: "{question}"
+    """
     response = llm.chat.completions.create(
         model="databricks-llama-4-maverick",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.0,
-        max_tokens=10
+        max_tokens=10,
     )
     return response.choices[0].message.content.strip().lower() == "mixed"
 
@@ -199,25 +198,15 @@ Return as JSON:
                     temperature=0.0,
                     max_tokens=200,
                 )
-                content = classify_response.choices[0].message.content.strip()
-                logger.info(f"LLM classify response: {content}")
-
                 try:
+                    content = classify_response.choices[0].message.content.strip()
+                    logger.info(f"LLM classify response: {content}")
                     parts = json.loads(content)
-                except json.JSONDecodeError:
-                    import re
-                    logger.warning("⚠️ LLM response is not valid JSON, using regex fallback.")
-                    match = re.search(r'cinema_question"\s*:\s*"(.+?)"\s*,\s*"survey_question"\s*:\s*"(.+?)"', content, re.DOTALL)
-                    if match:
-                        parts = {
-                            "cinema_question": match.group(1).strip(),
-                            "survey_question": match.group(2).strip()
-                        }
-                    else:
-                        raise ValueError("Failed to parse sub-questions using both JSON and regex fallback.")
+                    cinema_q = parts["cinema_question"]
+                    survey_q = parts["survey_question"]
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Failed to split the question properly: {e}")
 
-                cinema_q = parts["cinema_question"]
-                survey_q = parts["survey_question"]
                 logger.info(f"Original mixed question: {q}")
                 logger.info(f"Cinema sub-question: {cinema_q}")
                 logger.info(f"Survey sub-question: {survey_q}")
