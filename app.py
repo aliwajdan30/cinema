@@ -199,15 +199,25 @@ Return as JSON:
                     temperature=0.0,
                     max_tokens=200,
                 )
-                try:
-                    content = classify_response.choices[0].message.content.strip()
-                    logger.info(f"LLM classify response: {content}")
-                    parts = json.loads(content)
-                    cinema_q = parts["cinema_question"]
-                    survey_q = parts["survey_question"]
-                except json.JSONDecodeError as e:
-                    raise ValueError(f"Failed to split the question properly: {e}")
+                content = classify_response.choices[0].message.content.strip()
+                logger.info(f"LLM classify response: {content}")
 
+                try:
+                    parts = json.loads(content)
+                except json.JSONDecodeError:
+                    import re
+                    logger.warning("⚠️ LLM response is not valid JSON, using regex fallback.")
+                    match = re.search(r'cinema_question"\s*:\s*"(.+?)"\s*,\s*"survey_question"\s*:\s*"(.+?)"', content, re.DOTALL)
+                    if match:
+                        parts = {
+                            "cinema_question": match.group(1).strip(),
+                            "survey_question": match.group(2).strip()
+                        }
+                    else:
+                        raise ValueError("Failed to parse sub-questions using both JSON and regex fallback.")
+
+                cinema_q = parts["cinema_question"]
+                survey_q = parts["survey_question"]
                 logger.info(f"Original mixed question: {q}")
                 logger.info(f"Cinema sub-question: {cinema_q}")
                 logger.info(f"Survey sub-question: {survey_q}")
