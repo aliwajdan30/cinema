@@ -28,6 +28,7 @@ if "genie_conversation_id" not in st.session_state:
 
 # --- SCHEMA LOADER ---
 @st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False)
 def fetch_table_schemas():
     schema_info = {}
     try:
@@ -37,14 +38,28 @@ def fetch_table_schemas():
             access_token=DATABRICKS_TOKEN
         )
         cursor = conn.cursor()
-        for table in ["survey"]:
-            cursor.execute(f"DESCRIBE TABLE dev.cinema.{table}")
-            rows = cursor.fetchall()
-            schema_info[table] = [f"{r[0]} ({r[1]})" for r in rows if r[0] and not r[0].startswith("#")]
+
+        # 👇 Add more tables if needed here
+        tables = ["survey"]
+
+        for table in tables:
+            try:
+                cursor.execute(f"DESCRIBE TABLE dev.cinema.{table}")
+                rows = cursor.fetchall()
+                cleaned = []
+                for r in rows:
+                    # Ensure r has at least 2 entries and both are strings
+                    if len(r) >= 2 and isinstance(r[0], str) and isinstance(r[1], str):
+                        cleaned.append(f"{r[0]} ({r[1]})")
+                schema_info[table] = cleaned
+            except Exception as inner_e:
+                schema_info[table] = [f"⚠️ Failed to load schema: {str(inner_e)}"]
+
         cursor.close()
         conn.close()
     except Exception as e:
         schema_info["error"] = str(e)
+
     return schema_info
 
 TABLE_SCHEMAS = fetch_table_schemas()
