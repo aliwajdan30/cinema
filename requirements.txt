@@ -1,5 +1,6 @@
 streamlit
 pandas
+numpy>=1.26.0
 requests
 python-dotenv
 openai>=1.0.0
