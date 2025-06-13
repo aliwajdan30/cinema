@@ -193,11 +193,15 @@ if q:
             if q_type == "mixed":
                 parts = split_into_cinema_and_survey(q)
                 cinema_q, survey_q = parts["cinema"], parts["survey"]
+                st.write("🔍 **Classification:**", "MIXED")
                 st.write("🎬 **Cinema Part:**", cinema_q)
                 st.write("🛍️ **Lifestyle Part:**", survey_q)
 
                 logger.info("🔗 Fetching target group from cinema question...")
                 target_cols, target_rows = ask_genie(cinema_q)
+                target_df = pd.DataFrame(target_rows, columns=target_cols)
+                st.subheader("🎯 Target Group SourceIDs")
+                st.dataframe(target_df, use_container_width=True)
 
                 logger.info("📚 Fetching relevant survey columns...")
                 survey_schema = fetch_survey_schema()
@@ -211,9 +215,16 @@ if q:
                 relevant_columns = col_response.choices[0].message.content.strip()
                 logger.info(f"🧩 Relevant survey columns: {relevant_columns}")
 
-                final_question = f"SELECT {relevant_columns} FROM survey WHERE SourceID IN (SELECT SourceID FROM ({cinema_q}))"
-                logger.info(f"🧠 Final genie question: {final_question}")
-                colnames, rows = ask_genie(final_question)
+                # Plain-language prompt for Genie
+                plain_prompt = f"""
+                        For this target group (from the previous query) and the following survey columns:
+                        {relevant_columns}
+                        {survey_q}
+                        """
+                logger.info("🧠 Final plain Genie question:")
+                logger.info(plain_prompt)
+
+                colnames, rows = ask_genie(plain_prompt)
                 explanation = explain_answer(q, colnames, rows)
 
                 st.subheader("📊 Raw Table")
