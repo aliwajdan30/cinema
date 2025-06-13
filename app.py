@@ -28,43 +28,72 @@ if "genie_conversation_id" not in st.session_state:
 
 # --- SCHEMA LOADER ---
 @st.cache_data(show_spinner=False)
-@st.cache_data(show_spinner=False)
 def fetch_table_schemas():
     schema_info = {}
     try:
-        conn = sql.connect(
-            server_hostname=workspace_url,
-            http_path=http_path,
-            access_token=DATABRICKS_TOKEN
-        )
+        conn = sql.connect(server_hostname=workspace_url, http_path=http_path, access_token=DATABRICKS_TOKEN)
         cursor = conn.cursor()
-
-        # 👇 Add more tables if needed here
-        tables = ["survey"]
-
-        for table in tables:
-            try:
-                cursor.execute(f"DESCRIBE TABLE dev.cinema.{table}")
-                rows = cursor.fetchall()
-                cleaned = []
-                for r in rows:
-                    # Ensure r has at least 2 entries and both are strings
-                    if len(r) >= 2 and isinstance(r[0], str) and isinstance(r[1], str):
-                        cleaned.append(f"{r[0]} ({r[1]})")
-                schema_info[table] = cleaned
-            except Exception as inner_e:
-                schema_info[table] = [f"⚠️ Failed to load schema: {str(inner_e)}"]
-
+        for table in ["survey"]:
+            cursor.execute(f"DESCRIBE TABLE dev.cinema.{table}")
+            rows = cursor.fetchall()
+            schema_info[table] = [f"{r[0]} ({r[1]})" for r in rows if r[0] and not r[0].startswith("#")]
         cursor.close()
         conn.close()
     except Exception as e:
         schema_info["error"] = str(e)
-
     return schema_info
 
 TABLE_SCHEMAS = fetch_table_schemas()
 
-# --- GENIE SQL FLOW ---
+@st.cache_data(show_spinner=False)
+def fetch_survey_schema():
+    try:
+        conn = sql.connect(server_hostname=workspace_url, http_path=http_path, access_token=DATABRICKS_TOKEN)
+        cursor = conn.cursor()
+        cursor.execute("SELECT column_name, category, subcategory FROM dev.cinema.survey_columns")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return {row[0]: {"category": row[1], "subcategory": row[2]} for row in rows}
+    except Exception as e:
+        logger.error(f"Error fetching survey schema: {e}")
+        return {}
+
+def is_mixed_question(question):
+    prompt = f"""
+Classify the following question strictly as 'cinema' or 'mixed'.
+- If the question is ONLY about movies, cinemas, showings, gender of cinema goers, locations, distributors, target groups etc., classify it as 'cinema'.
+- If the question ALSO involves lifestyle dimensions like (but not limited to) income, car ownership, food, groceries, housing, banking, or family, classify it as 'mixed'.
+Only respond with: cinema or mixed.
+
+Question: \"{question}\"
+"""
+    response = llm.chat.completions.create(
+        model="databricks-llama-4-maverick",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.0,
+        max_tokens=10,
+    )
+    result = response.choices[0].message.content.strip().lower()
+    logger.info(f"\U0001f9e0 Question classified as: {result.upper()}")
+    return result
+
+def is_generic_movie_question(question):
+    keywords = ["tell me about", "info about", "information about", "what can you tell me"]
+    return any(k in question.lower() for k in keywords) or len(question.strip().split()) <= 4
+
+def generate_prompt_with_schema(question, survey_schema):
+    schema_info = "\n".join([f"- {col}: Category: {desc['category']}, Subcategory: {desc['subcategory']}" for col, desc in survey_schema.items()])
+    prompt = f"""
+You are provided with the following survey schema:
+
+{schema_info}
+
+Based on this schema, identify which survey columns are relevant to answer the question: \"{question}\"
+Return only the column names in a comma-separated list.
+"""
+    return prompt
+
 def ask_genie(question):
     if st.session_state.genie_conversation_id:
         conv_id = st.session_state.genie_conversation_id
@@ -97,7 +126,6 @@ def ask_genie(question):
     cols = [col["name"] for col in result_resp["statement_response"]["manifest"]["schema"]["columns"]]
     return cols, rows
 
-# --- INTERPRETATION ---
 def explain_answer(question, cols, rows):
     df = pd.DataFrame(rows, columns=cols)
     preview = df.head().to_markdown(index=False)
@@ -110,9 +138,42 @@ def explain_answer(question, cols, rows):
     )
     return response.choices[0].message.content.strip()
 
+def split_into_cinema_and_survey(question):
+    prompt = f"""
+You are a JSON-generating assistant.
+
+Your task is to split the user's question into 2 parts:
+1. CINEMA: Focused on movies, film titles, showings, admissions, distributors, or audience.
+2. LIFESTYLE: Related to preferences or demographics like car brands, banks, food, family, housing, etc.
+
+Split the question **accurately** by moving all lifestyle-related expressions (e.g. "which cars do they prefer") to the `survey` part, even if it overlaps with a movie reference.
+
+Always respond with:
+{{
+  "cinema": "...",
+  "survey": "..."
+}}
+
+Question: \"{question}\"
+"""
+    response = llm.chat.completions.create(
+        model="databricks-llama-4-maverick",
+        messages=[
+            {"role": "system", "content": "You are a strict JSON generator. Do not explain or include any extra text."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.0,
+        max_tokens=300,
+    )
+    try:
+        return json.loads(response.choices[0].message.content.strip())
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to parse split JSON: {e}\nReturned text:\n{response.choices[0].message.content}")
+        return {"cinema": question, "survey": ""}
+
 # --- STREAMLIT UI ---
-st.set_page_config(page_title="Cinema/Norstat Assistant", layout="wide")
-st.title("🎯 Cinema/Norstat Assistant")
+st.set_page_config(page_title="Film Monitor Assistant", layout="wide")
+st.title("🎯 Film Monitor Assistant")
 
 if "error" in TABLE_SCHEMAS:
     st.error(f"Schema failed to load: {TABLE_SCHEMAS['error']}")
@@ -125,14 +186,69 @@ if q:
     st.write("📋 **Question:**", q)
     with st.spinner("Processing..."):
         try:
-            colnames, rows = ask_genie(q)
-            explanation = explain_answer(q, colnames, rows)
+            q_type = is_mixed_question(q)
+            st.write(f"🔍 **Classification:** `{q_type.upper()}`")
 
-            st.subheader("📊 Raw Table")
-            st.dataframe(pd.DataFrame(rows, columns=colnames), use_container_width=True)
+            if q_type == "mixed":
+                parts = split_into_cinema_and_survey(q)
+                cinema_q, survey_q = parts["cinema"], parts["survey"]
+                st.write("🎬 **Cinema Part:**", cinema_q)
+                st.write("🛍️ **Lifestyle Part:**", survey_q)
 
-            st.subheader("💬 Explanation")
-            st.write(explanation)
+                logger.info("🔗 Fetching target group from cinema question...")
+                target_cols, target_rows = ask_genie(cinema_q)
+
+                logger.info("📚 Fetching relevant survey columns...")
+                survey_schema = fetch_survey_schema()
+                survey_prompt = generate_prompt_with_schema(survey_q, survey_schema)
+                col_response = llm.chat.completions.create(
+                    model="databricks-llama-4-maverick",
+                    messages=[{"role": "user", "content": survey_prompt}],
+                    temperature=0.5,
+                    max_tokens=250,
+                )
+                relevant_columns = col_response.choices[0].message.content.strip()
+                logger.info(f"🧩 Relevant survey columns: {relevant_columns}")
+
+                final_question = f"SELECT {relevant_columns} FROM survey WHERE SourceID IN (SELECT SourceID FROM ({cinema_q}))"
+                logger.info(f"🧠 Final genie question: {final_question}")
+                colnames, rows = ask_genie(final_question)
+                explanation = explain_answer(q, colnames, rows)
+
+                st.subheader("📊 Raw Table")
+                st.dataframe(pd.DataFrame(rows, columns=colnames), use_container_width=True)
+                st.subheader("💬 Explanation")
+                st.write(explanation)
+
+            else:
+                if is_generic_movie_question(q):
+                    st.subheader("🎞️ General Movie Summary Mode")
+                    movie_name = q.replace("tell me about", "").strip(" ?")
+
+                    gender_q = f"What is the gender breakdown of people who watched {movie_name}, by location?"
+                    age_q = f"What is the age group breakdown of people who watched {movie_name}, by location?"
+                    admissions_q = f"What are the total admissions for {movie_name} by location?"
+                    target_q = f"What is the target group profile for people who watched {movie_name}?"
+
+                    for sub_q, label in [
+                        (gender_q, "🧑‍🤝‍🧑 Gender Breakdown by Location"),
+                        (age_q, "🎂 Age Group Breakdown by Location"),
+                        (admissions_q, "🎟️ Total Admissions by Location"),
+                        (target_q, "🎯 Target Group Summary")
+                    ]:
+                        cols, rows = ask_genie(sub_q)
+                        exp = explain_answer(sub_q, cols, rows)
+                        st.subheader(label)
+                        st.dataframe(pd.DataFrame(rows, columns=cols), use_container_width=True)
+                        st.write(exp)
+
+                else:
+                    colnames, rows = ask_genie(q)
+                    explanation = explain_answer(q, colnames, rows)
+                    st.subheader("📊 Raw Table")
+                    st.dataframe(pd.DataFrame(rows, columns=colnames), use_container_width=True)
+                    st.subheader("💬 Explanation")
+                    st.write(explanation)
 
         except Exception as e:
             logger.exception("Unhandled error during processing.")
