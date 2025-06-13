@@ -190,18 +190,15 @@ if q:
             q_type = is_mixed_question(q)
             st.write(f"🔍 **Classification:** `{q_type.upper()}`")
 
-if q_type == "mixed":
+            if q_type == "mixed":
                 parts = split_into_cinema_and_survey(q)
                 cinema_q, survey_q = parts["cinema"], parts["survey"]
-                st.write("🔍 **Classification:**", "MIXED")
+                st.write("🔍 **Classification:** Mixed")
                 st.write("🎬 **Cinema Part:**", cinema_q)
                 st.write("🛍️ **Lifestyle Part:**", survey_q)
 
                 logger.info("🔗 Fetching target group from cinema question...")
                 target_cols, target_rows = ask_genie(cinema_q)
-                target_df = pd.DataFrame(target_rows, columns=target_cols)
-                st.subheader("🎯 Target Group SourceIDs")
-                st.dataframe(target_df, use_container_width=True)
 
                 logger.info("📚 Fetching relevant survey columns...")
                 survey_schema = fetch_survey_schema()
@@ -212,22 +209,18 @@ if q_type == "mixed":
                     temperature=0.0,
                     max_tokens=150,
                 )
-                relevant_columns = col_response.choices[0].message.content.strip()
+                raw_col_output = col_response.choices[0].message.content.strip()
+                # Attempt to extract columns from any text (if necessary)
+                relevant_columns = raw_col_output.split(":")[-1].strip()
+                logger.info(f"🧩 Relevant survey columns: {relevant_columns}")
 
-                # Extract just the column list
-                relevant_columns = relevant_columns.split(":", -1)[-1].strip()  # In case it says "Here are the columns: col1, col2"
-                logger.info(f"✅ Cleaned relevant columns: {relevant_columns}")
-
-                # Plain-language prompt for Genie
-                plain_prompt = f"""
-                        For this target group (from the previous query) and the following survey columns:
-                        {relevant_columns}
-                        {survey_q}
-                        """
-                logger.info("🧠 Final plain Genie question:")
-                logger.info(plain_prompt)
-
-                colnames, rows = ask_genie(plain_prompt)
+                final_genie_prompt = f"""
+                    For the previously identified target group, analyze these columns:
+                    {relevant_columns}.
+                    {survey_q}
+                    """
+                logger.info(f"🧠 Final genie question: {final_genie_prompt}")
+                colnames, rows = ask_genie(final_genie_prompt)
                 explanation = explain_answer(q, colnames, rows)
 
                 st.subheader("📊 Raw Table")
