@@ -144,9 +144,9 @@ You are a JSON-generating assistant.
 
 Your task is to split the user's question into 2 parts:
 1. CINEMA: Focused on movies, film titles, showings, admissions, distributors, or audience.
-2. LIFESTYLE: Related to preferences or demographics like car brands, banks, food, family, housing, etc.
+2. LIFESTYLE: Related to preferences or demographics like car brands, banks, food, grocery stores, family, housing, etc.
 
-Split the question **accurately** by moving all lifestyle-related expressions (e.g. "which cars do they prefer") to the `survey` part, even if it overlaps with a movie reference.
+Split the question **accurately** by moving all lifestyle-related expressions (e.g. "which cars do they prefer", "what groceries stores do they shop at", "which type of cheese do they like", "do they eat meat") to the `survey` part, even if it overlaps with a movie reference.
 
 Always respond with:
 {{
