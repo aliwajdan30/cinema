@@ -190,7 +190,7 @@ if q:
             q_type = is_mixed_question(q)
             st.write(f"🔍 **Classification:** `{q_type.upper()}`")
 
-            if q_type == "mixed":
+if q_type == "mixed":
                 parts = split_into_cinema_and_survey(q)
                 cinema_q, survey_q = parts["cinema"], parts["survey"]
                 st.write("🔍 **Classification:**", "MIXED")
@@ -209,11 +209,14 @@ if q:
                 col_response = llm.chat.completions.create(
                     model="databricks-llama-4-maverick",
                     messages=[{"role": "user", "content": survey_prompt}],
-                    temperature=0.5,
-                    max_tokens=250,
+                    temperature=0.0,
+                    max_tokens=150,
                 )
                 relevant_columns = col_response.choices[0].message.content.strip()
-                logger.info(f"🧩 Relevant survey columns: {relevant_columns}")
+
+                # Extract just the column list
+                relevant_columns = relevant_columns.split(":", -1)[-1].strip()  # In case it says "Here are the columns: col1, col2"
+                logger.info(f"✅ Cleaned relevant columns: {relevant_columns}")
 
                 # Plain-language prompt for Genie
                 plain_prompt = f"""
