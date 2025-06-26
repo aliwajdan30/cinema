@@ -66,6 +66,7 @@ Classify the following question strictly as 'cinema' or 'mixed'.
 - If the question is ONLY about movies, cinemas, showings, gender of cinema goers, locations, distributors, target groups etc., classify it as 'cinema'.
 - If the question ALSO involves lifestyle dimensions like (but not limited to) income, car ownership, food, groceries, housing, banking, or family, classify it as 'mixed'.
 Only respond with: cinema or mixed.
+- If the question needs both cinema and lifestyle data to answer e.g (people who watch top gun, what is the likelihood they own a BMW), classify it as 'cinema' and let genie handle it.
 
 Question: \"{question}\"
 """
@@ -77,7 +78,7 @@ Question: \"{question}\"
     )
     result = response.choices[0].message.content.strip().lower()
     logger.info(f"\U0001f9e0 Question classified as: {result.upper()}")
-    return result
+    return "cinema"
 
 def is_generic_movie_question(question):
     keywords = ["tell me about", "info about", "information about", "what can you tell me"]
@@ -145,9 +146,9 @@ You are a JSON-generating assistant.
 
 Your task is to split the user's question into 2 parts:
 1. CINEMA: Focused on movies, film titles, showings, admissions, distributors, or audience.
-2. LIFESTYLE: Related to preferences or demographics like car brands, banks, food, grocery stores, family, housing, etc.
+2. LIFESTYLE: Related to preferences or demographics like car brands, banks, food, family, housing, etc.
 
-Split the question **accurately** by moving all lifestyle-related expressions (e.g. "which cars do they prefer", "what groceries stores do they shop at", "which type of cheese do they like", "do they eat meat") to the `survey` part, even if it overlaps with a movie reference.
+Split the question **accurately** by moving all lifestyle-related expressions (e.g. "which cars do they prefer") to the `survey` part, even if it overlaps with a movie reference.
 
 Always respond with:
 {{
@@ -193,7 +194,6 @@ if q:
             if q_type == "mixed":
                 parts = split_into_cinema_and_survey(q)
                 cinema_q, survey_q = parts["cinema"], parts["survey"]
-                st.write("🔍 **Classification:** Mixed")
                 st.write("🎬 **Cinema Part:**", cinema_q)
                 st.write("🛍️ **Lifestyle Part:**", survey_q)
 
@@ -206,21 +206,15 @@ if q:
                 col_response = llm.chat.completions.create(
                     model="databricks-llama-4-maverick",
                     messages=[{"role": "user", "content": survey_prompt}],
-                    temperature=0.0,
-                    max_tokens=150,
+                    temperature=0.5,
+                    max_tokens=250,
                 )
-                raw_col_output = col_response.choices[0].message.content.strip()
-                # Attempt to extract columns from any text (if necessary)
-                relevant_columns = raw_col_output.split(":")[-1].strip()
+                relevant_columns = col_response.choices[0].message.content.strip()
                 logger.info(f"🧩 Relevant survey columns: {relevant_columns}")
 
-                final_genie_prompt = f"""
-                    For the previously identified target group, analyze these columns:
-                    {relevant_columns}.
-                    {survey_q}
-                    """
-                logger.info(f"🧠 Final genie question: {final_genie_prompt}")
-                colnames, rows = ask_genie(final_genie_prompt)
+                final_question = f"SELECT {relevant_columns} FROM survey WHERE SourceID IN (SELECT SourceID FROM ({cinema_q}))"
+                logger.info(f"🧠 Final genie question: {final_question}")
+                colnames, rows = ask_genie(final_question)
                 explanation = explain_answer(q, colnames, rows)
 
                 st.subheader("📊 Raw Table")
